@@ -1,7 +1,9 @@
 """Utilities for loading data from publicly available data sets.
 """
+import argparse
 import glob
 import os
+import shutil
 import urllib.request
 import zipfile
 
@@ -59,7 +61,7 @@ def _parse_kitti_oxts(*, path):
 
     # Create data frame ane augment with timestamp seconds column.
     df = pd.DataFrame(data, index=index, columns=OXTS_COLUMNS)
-    df['timestamp'] = 1e-9 * index.astype(np.int64)
+    df['timestamp'] = 1e-9 * index.view(np.int64)
     return df
 
 
@@ -82,11 +84,12 @@ def get_kitti_data(*, drive, sequence, force_download=False):
     """
     os.makedirs(KITTI_OUT, exist_ok=True)
     path = os.path.join(KITTI_OUT, drive)
-    if force_download or not os.path.exists(path):
+    if force_download or not os.path.exists(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract')):
         def _download_extract(fin):
             url = f'{KITTI_URL}/{fin}'
             print(f'downloading {url}...')
-            fout, _ = urllib.request.urlretrieve(url)  # downloads to tmp
+            # fout, _ = urllib.request.urlretrieve(url)  # downloads to tmp
+            fout, _ = urllib.request.urlretrieve(url, filename=f'foo{np.random.randint(1000):04d}')
             print(f'extracting {fout}...')
             with zipfile.ZipFile(fout, 'r') as z:  # extracts to pwd
                 z.extractall(path=KITTI_OUT)
@@ -94,13 +97,29 @@ def get_kitti_data(*, drive, sequence, force_download=False):
         _download_extract(f'{drive}_drive_{sequence:04d}/{drive}_drive_{sequence:04d}_extract.zip')
 
         # Remove image/velodyne data since we only care about oxts.
-        os.removedirs(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'image_00'))
-        os.removedirs(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'image_01'))
-        os.removedirs(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'image_02'))
-        os.removedirs(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'image_03'))
-        os.removedirs(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'velodyne_points'))
+        shutil.rmtree(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'image_00'), ignore_errors=True)
+        shutil.rmtree(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'image_01'), ignore_errors=True)
+        shutil.rmtree(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'image_02'), ignore_errors=True)
+        shutil.rmtree(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'image_03'), ignore_errors=True)
+        shutil.rmtree(os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'velodyne_points'),
+                      ignore_errors=True)
     assert os.path.exists(path)
 
     df = _parse_kitti_oxts(
             path=os.path.join(path, f'{drive}_drive_{sequence:04d}_extract', 'oxts'))
     return df
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--drive', required=True, help='drive label e.g., 2011_09_30')
+    parser.add_argument('--sequence', required=True, type=int, help='sequence number')
+    args = parser.parse_args()
+
+    print(f'downloading drive {args.drive}/sequence {args.sequence}')
+    df = get_kitti_data(drive=args.drive, sequence=args.sequence)
+    print(df.describe())
+
+
+if __name__ == '__main__':
+    main()
